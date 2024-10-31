@@ -3,110 +3,164 @@ import 'dart:math';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:nice_page_view/bracket_item.dart';
+import 'package:nice_page_view/static_bracket_data.dart';
 
 class MatchBrackets extends StatefulWidget {
-  const MatchBrackets({super.key});
+  const MatchBrackets({super.key, required this.columnWidth});
+  final double columnWidth;
 
   @override
   State<MatchBrackets> createState() => _MatchBracketsState();
 }
 
 class _MatchBracketsState extends State<MatchBrackets> {
-  dynamic getMatchBracketData() {
-    var ar = [];
+  @override
+  void initState() {
+    super.initState();
 
-    for (var j = 0; j < 10; j++) {
-      var fights = [];
-
-      for (var i = 0; i < 10 - j; i++) {
-        var fight = {};
-        fight["id"] = i;
-        fight["name"] = "Fight $i";
-        fight["stage"] = "Stage $j";
-
-        fight['fighters'] = [
-          {"name": "Fighter 1", "score": 10},
-          {"name": "Fighter 2", "score": 5}
-        ];
-
-        fights.add(fight);
-      }
-      ar.add({"name": "Stage $j", "fights": fights});
-    }
-
-    ar.removeWhere((element) => element['fights'].length % 2 != 0 && element['fights'].length != 1);
-    return ar;
+    _horizontalScrollCOntroller.addListener(() {
+      setState(() {});
+    });
+   
   }
 
-  var controller = PageController(viewportFraction: 0.9);
+  final _horizontalScrollCOntroller = ScrollController();
 
-  double get safePage {
+
+  ///
+  /// This will be used to determine a columns distance from the center of attention (center or an offset)
+  ///
+  double get safeOffset {
     try {
-      return controller.page ?? 0;
+      return _horizontalScrollCOntroller.offset;
     } catch (e) {
       return 0;
     }
   }
 
   @override
-  void initState() {
-    super.initState();
-    controller.addListener(() {
-      setState(() {});
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    // pretty print this json
-    var data = getMatchBracketData();
-    // print(jsonEncode(data));
-    // return Placeholder();
+    var data = bracketData;
+    var size = MediaQuery.of(context).size;
 
-    
+    double visibilityStartsFromPage = safeOffset / widget.columnWidth;
+    var visibilityOffset = Offset(safeOffset, safeOffset + size.width);
+
+    print(visibilityStartsFromPage);
 
     ///
     /// A Fresh Attempt
-    /// 
-    
+    ///
     return Scaffold(
-      body: Text("Intented 2nd Draft"),
-    );
-
-
-
-
-    return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {},
-      ),
-      body: Transform.translate(
-        offset: Offset(-100, 0),
-        child: PageView.builder(
-          itemCount: data.length,
-          controller: controller,
-          // scrollBehavior: MyCustomScrollBehavior(),
-          itemBuilder: (context, index) {
-            var stage = data[index];
-        
-            var fightsInThisStage = stage['fights'];
-        
-            return InPageWidget(
-              page: safePage,
-              index: index,
-              itemsToShow: fightsInThisStage.length,
-              fights: fightsInThisStage,
-              totalStages: data.length,
-            );
+      body: SafeArea(
+        child: GestureDetector(
+          onHorizontalDragUpdate: (x) {
+            _horizontalScrollCOntroller.jumpTo(safeOffset + (x.delta.dx * -1));
           },
+          onHorizontalDragEnd: (details) {
+            var offset = _horizontalScrollCOntroller.offset;
+            // snap it to the nearest column
+            var columnWidth = widget.columnWidth;
+            var nearestColumn = (offset / columnWidth).round();
+            var _nearestSnappableScrollOffset = nearestColumn * columnWidth;
+
+            ///
+            /// This piece is quite critical because it allows a number of pixels from previous page
+            /// to still be visible as a result of scrolling one or multiple pages
+            ///
+            _nearestSnappableScrollOffset -= 20;
+            _horizontalScrollCOntroller.animateTo(_nearestSnappableScrollOffset, duration: Duration(milliseconds: 300), curve: Curves.ease);
+          },
+
+          dragStartBehavior: DragStartBehavior.start,
+          behavior: HitTestBehavior.deferToChild,
+          child: SingleChildScrollView(
+            hitTestBehavior: HitTestBehavior.deferToChild,
+            physics: const NeverScrollableScrollPhysics(),
+            controller: _horizontalScrollCOntroller,
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                ...List.generate(data.length, (index) {
+                  var stage = data[index];
+                  var fights = stage['fights'] as List;
+                  return PureColumn(
+                    offset: safeOffset,
+                    centerPoint: safeOffset + (size.width / 2),
+                    name: stage['name'].toString(),
+                    columnWidth: widget.columnWidth,
+                    child: SingleChildScrollView(
+                      physics: NeverScrollableScrollPhysics(),
+                      child: Column(
+                        children: [
+                          ...List.generate(
+                            fights.length,
+                            (x) {
+                              return BracketItem(
+                                data: fights[x],
+                                column: index,
+                                row: x,
+                                centerPoint: safeOffset,
+                                visibleColumn: visibilityStartsFromPage,
+                                columnWidth: widget.columnWidth,
+                              );
+                            },
+                          )
+                        ],
+                      ),
+                    ),
+                  );
+                })
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
+class PureColumn extends StatelessWidget {
+  const PureColumn({super.key, required this.name, required this.child, required this.columnWidth, required this.centerPoint, required this.offset});
+  final String name;
+  final Widget child;
+  final double columnWidth;
+  final double centerPoint;
+  final double offset;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: columnWidth,
+      child: Column(
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              // Added 1 for aesthetics
+              name.toString(),
+              style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.black45),
+            ),
+          ),
+          Expanded(
+            child: child,
+          )
+        ],
+      ),
+    );
+  }
+}
+
 class InPageWidget extends StatelessWidget {
-  const InPageWidget({super.key, required this.page, required this.index, required this.itemsToShow, required this.fights, required this.totalStages});
+  const InPageWidget({
+    super.key,
+    required this.page,
+    required this.index,
+    required this.itemsToShow,
+    required this.fights,
+    required this.totalStages,
+  });
   final double page;
   final int index;
   final int itemsToShow;
@@ -127,14 +181,15 @@ class InPageWidget extends StatelessWidget {
     return Align(
       alignment: Alignment.topCenter,
       child: Container(
-        height:(  page_height  + max((_value - 1), 0) * _itemHeight) * _pageSizeMultiplier,
+        height: (page_height + max((_value - 1), 0) * _itemHeight) * _pageSizeMultiplier,
         child: Row(
           children: [
             if (index > 0)
               Container(
-                width: 20,
-                child: Column(children: [],)
-              ),
+                  width: 20,
+                  child: Column(
+                    children: [],
+                  )),
             Expanded(
               child: Stack(
                 children: [
@@ -143,7 +198,7 @@ class InPageWidget extends StatelessWidget {
                     (_localIndex) => Positioned(
                       left: 0,
                       right: 0,
-                      top : (max((_value - 1), 0) * _itemHeight) +  _localIndex * _itemHeight,
+                      top: (max((_value - 1), 0) * _itemHeight) + _localIndex * _itemHeight,
                       // top: _localIndex <= (fights.length /2).round() ? (max((_value - 1), 0) * _itemHeight) +  _localIndex * _itemHeight : null,
                       // bottom: _localIndex >= (fights.length /2).round() ? (max((_value - 1), 0) * _itemHeight) +  _localIndex * _itemHeight : null,
                       child: Container(
